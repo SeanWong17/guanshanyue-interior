@@ -4,6 +4,8 @@
 
 **[在线访问](https://seanwong17.github.io/guanshanyue-interior/)** · [Blender 模型](output/apartment_v1.blend) · [GLB 模型](output/apartment_v1.glb)
 
+![全屋鸟瞰示意图](output/01_whole_home.png)
+
 本项目参考了 [Panorama Static Viewer](https://github.com/SeanWong17/panorama-static-viewer) 的室内全景展示与空间浏览方式，并使用其示例公寓全景资料辅助建模核对；采用可编辑的 Blender 模型和 Three.js 三维漫游展示。
 
 ## 最终成果
