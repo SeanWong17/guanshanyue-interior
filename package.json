@@ -1,0 +1,19 @@
+{
+  "name": "guanshanyue-interior",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5186",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5186",
+    "test:browser": "node check_preview.mjs && node check_walkthrough.mjs"
+  },
+  "dependencies": {
+    "lucide": "^0.468.0",
+    "three": "^0.180.0",
+    "vite": "^6.4.3"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.1"
+  }
+}

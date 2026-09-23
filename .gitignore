@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.codegraph/
+*.blend1
+.env
+.env.*
+backups/
+MIGRATION.json
+output/web-*.png
+output/walk-*.png
+output/web-check.json
+output/walk-check.json
+output/gpu_report.json
+__pycache__/
+*.pyc
+.DS_Store

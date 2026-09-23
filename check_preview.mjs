@@ -1,0 +1,31 @@
+import {chromium} from 'playwright';
+import fs from 'node:fs/promises';
+const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const results=[];
+for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844]]){
+ const page=await browser.newPage({viewport:{width,height}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.PREVIEW_URL || 'http://127.0.0.1:5186');
+ await page.waitForFunction(()=>window.__preview?.model,{timeout:60000});await page.waitForTimeout(1800);
+ const pixels=await page.evaluate(()=>{const r=window.__preview.renderer,gl=r.getContext(),w=gl.drawingBufferWidth,h=gl.drawingBufferHeight;const data=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,data);const colors=new Set();for(let i=0;i<data.length;i+=4*193)colors.add(`${data[i]},${data[i+1]},${data[i+2]}`);return{colors:colors.size,w,h};});
+ await page.screenshot({path:`output/web-${name}.png`});
+ const before=await page.locator('canvas[aria-label="三维模型"]').screenshot();
+ const bounds=await page.locator('canvas[aria-label="三维模型"]').boundingBox();await page.mouse.move(bounds.x+bounds.width*.45,bounds.y+bounds.height*.45);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.65,bounds.y+bounds.height*.52,{steps:12});await page.mouse.up();await page.waitForTimeout(800);
+ const after=await page.locator('canvas[aria-label="三维模型"]').screenshot();
+ await page.locator('[data-group="02"]').check();
+ const ceiling=await page.evaluate(()=>{let count=0;window.__preview.model.traverse(o=>{if(o.userData.preview_group==='02'&&o.visible)count++;});return count;});
+ await page.locator('[data-group="02"]').uncheck();
+ await page.locator('[data-group="06"]').check();
+ await page.locator('[data-group="11"]').uncheck();
+ const split=await page.evaluate(()=>{const c={windows:0,curtains:0,southCurtains:0};window.__preview.model.traverse(o=>{if(o.visible&&o.userData.preview_group==='06')c.windows++;if(o.visible&&o.userData.preview_group==='11')c.curtains++;if(o.name.startsWith('South_bedroom_sheer'))c.southCurtains++;});return c;});
+ if(!split.windows||split.curtains||split.southCurtains)throw Error('Window/curtain split failed');
+ await page.locator('[data-group="11"]').check();
+ await page.locator('[data-group="06"]').uncheck();
+ const curtainOnly=await page.evaluate(()=>{let n=0;window.__preview.model.traverse(o=>{if(o.visible&&o.userData.preview_group==='11')n++;});return n;});
+ if(!curtainOnly)throw Error('Curtain toggle failed');
+ await page.locator('[data-group="11"]').uncheck();
+ await page.locator('[data-view="living"]').click();await page.waitForTimeout(500);await page.screenshot({path:`output/web-${name}-living.png`});
+ const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+ results.push({name,errors,pixels,dragChangesImage:!before.equals(after),ceilingVisibleObjects:ceiling,overflow});await page.close();
+}
+await browser.close();await fs.writeFile('output/web-check.json',JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));
+if(results.some(r=>r.errors.length||r.pixels.colors<20||!r.dragChangesImage||!r.ceilingVisibleObjects||r.overflow))process.exit(1);

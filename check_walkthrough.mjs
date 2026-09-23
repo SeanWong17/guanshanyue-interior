@@ -1,0 +1,53 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const results=[];
+try {
+for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
+ const page=await browser.newPage({viewport:{width,height},hasTouch:name==='mobile'}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.PREVIEW_URL || 'http://127.0.0.1:5186');
+ await page.waitForFunction(()=>window.__preview?.model,{timeout:60000});
+ const original=await page.evaluate(()=>window.__preview.camera.position.toArray());
+ await page.locator('[data-mode="walk"]').click();
+ const start=await page.evaluate(()=>({p:window.__preview.camera.position.toArray(),enabled:window.__preview.walk.enabled}));
+ assert(start.enabled);assert.equal(start.p[1],1.6);assert(start.p[0]<11);
+ const canvas=page.locator('canvas[aria-label="三维模型"]'),b=await canvas.boundingBox();
+ await page.waitForTimeout(100);
+ const mapBefore=await page.locator('#walk-map').evaluate(c=>c.toDataURL());
+ await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();
+ const q=await page.evaluate(()=>window.__preview.camera.quaternion.toArray());
+ await page.mouse.move(b.x+b.width/2+65,b.y+b.height/2+20,{steps:6});await page.mouse.up();
+ assert.notDeepEqual(await page.evaluate(()=>window.__preview.camera.quaternion.toArray()),q);
+ await page.waitForTimeout(100);
+ assert.notEqual(await page.locator('#walk-map').evaluate(c=>c.toDataURL()),mapBefore,'Map heading must update');
+ await canvas.focus();await page.keyboard.down('KeyW');
+ await page.waitForFunction(p=>{const c=window.__preview.camera.position;return Math.hypot(c.x-p[0],c.z-p[2])>.05;},start.p,{timeout:15000});
+ await page.keyboard.up('KeyW');
+ const moved=await page.evaluate(()=>window.__preview.camera.position.toArray());
+ assert(Math.hypot(moved[0]-start.p[0],moved[2]-start.p[2])>.05,'Keyboard must move');
+ const button=page.locator('[data-move="back"]');const bb=await button.boundingBox();
+ await page.mouse.move(bb.x+22,bb.y+22);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.up();
+ assert.notDeepEqual(await page.evaluate(()=>window.__preview.camera.position.toArray()),moved);
+ const rooms=await page.evaluate(()=>{const p=window.__preview;return ['living','dining','master','entry','north','south','bath'].map(name=>({name,placed:p.walk.place(name),position:p.camera.position.toArray()}));});
+ assert(rooms.every(r=>r.placed),JSON.stringify(rooms));
+ await page.evaluate(()=>window.__preview.walk.place('living'));
+ await canvas.focus();await page.keyboard.down('KeyW');
+ await page.evaluate(()=>{for(let i=0;i<1000;i++)window.__preview.walk.update(.05);});
+ await page.keyboard.up('KeyW');
+ const stopped=await page.evaluate(()=>window.__preview.camera.position.toArray());
+ assert(stopped[0]>=0&&stopped[0]<=10.4&&stopped[2]<=0&&stopped[2]>=-12.051,'Must stay on apartment floor');
+ await page.locator('#walk-reset').click();await page.waitForTimeout(300);
+ const colors=await page.evaluate(()=>{const gl=window.__preview.renderer.getContext(),data=new Uint8Array(gl.drawingBufferWidth*gl.drawingBufferHeight*4);gl.readPixels(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight,gl.RGBA,gl.UNSIGNED_BYTE,data);const s=new Set();for(let i=0;i<data.length;i+=772)s.add(`${data[i]},${data[i+1]},${data[i+2]}`);return s.size;});
+ assert(colors>20);
+ await page.screenshot({path:`output/walk-${name}.png`});
+ await page.locator('#walk-exit').click();
+ assert.equal(await page.locator('#walk-map').isVisible(),false);
+ const restored=await page.evaluate(()=>({p:window.__preview.camera.position.toArray(),enabled:window.__preview.controls.enabled,overflow:document.documentElement.scrollWidth>innerWidth}));
+ assert(restored.enabled);assert(!restored.overflow);
+ assert(original.every((v,i)=>Math.abs(v-restored.p[i])<1e-6));assert.deepEqual(errors,[]);
+ results.push({name,start,moved,stopped,rooms,colors,errors,restored});await page.close();
+}
+await fs.writeFile('output/walk-check.json',JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));
+}finally{await browser.close();}
